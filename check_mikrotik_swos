@@ -1,0 +1,480 @@
+#!/usr/bin/perl -w
+
+#OUTSTANDING TASKS
+#-----------------
+#  Add more performance data details to the output  (ie fan speeds)
+
+
+# CHANGE LOG
+# ----------
+# 2021/06/17	njeffrey	Script created to monitor MikroTik devices running SwitchOS (not RouterOS)
+
+
+# nagios shell script to query MikroTik devices running SwitchOS (not RouterOS) via SNMP
+
+
+# NOTES
+# -----
+#
+#  This script should return one (and only one) line of ouput.  Multiple
+#  lines of output are silently ignored by nagios.
+#
+#  The line of output will become the body of the alert message sent by nagios
+#
+#
+#  This script queries a remote host via SNMP
+#
+#  You will need a section in the services.cfg
+#  file on the nagios server that looks similar to the following.
+#      # Define a service to check MikroTik devices running SwitchOL (not RouterOS)
+#      # Parameters are SNMP community name
+#      define service {
+#              use                             generic-service
+#              hostgroup_name                  all_mikrotik_swos
+#              service_description             MikroTik SwOS
+#              check_command                   check_mikrotik_swos!public
+#              }
+#
+#
+#  You will also need a command definition similar to the following in commands.cfg on the nagios server
+#      # 'check_mikrotik_swos' command definition
+#      # parameters are -H hostname -C snmp_community
+#      define command{
+#              command_name    check_mikrotik_swos
+#              command_line    $USER1$/check_mikrotik_swos -H $HOSTADDRESS$ -C $ARG1$
+#              }
+#
+#
+
+
+# Different MikroTik devices may use slightly different OID values because they differ in number of ports, fans, power supplies, etc.
+#
+# .1.3.6.1.2.1.1.1.0 = STRING: CSS106-1G-4P-1S SwOS v2.13	Model number and firmware level
+# .1.3.6.1.2.1.1.3.0 = Timeticks: (5218548) 14:29:45.48`	Uptime.  Value in brackets is inhundredths of seconds, followed by hh:mm:ss.##
+# .1.3.6.1.2.1.1.5.0 = STRING: switch2				Hostname
+#
+# Number of ports and port descriptions
+# .1.3.6.1.2.1.2.2.1.1.1 = INTEGER: 1
+# .1.3.6.1.2.1.2.2.1.1.2 = INTEGER: 2
+# .1.3.6.1.2.1.2.2.1.1.3 = INTEGER: 3
+# .1.3.6.1.2.1.2.2.1.1.4 = INTEGER: 4
+# .1.3.6.1.2.1.2.2.1.1.5 = INTEGER: 5
+# .1.3.6.1.2.1.2.2.1.1.6 = INTEGER: 6
+# .1.3.6.1.2.1.2.2.1.2.1 = STRING: Port1
+# .1.3.6.1.2.1.2.2.1.2.2 = STRING: Port2
+# .1.3.6.1.2.1.2.2.1.2.3 = STRING: Port3
+# .1.3.6.1.2.1.2.2.1.2.4 = STRING: Port4
+# .1.3.6.1.2.1.2.2.1.2.5 = STRING: Port5
+# .1.3.6.1.2.1.2.2.1.2.6 = STRING: SFP
+#
+# Interface administrative status
+# .1.3.6.1.2.1.2.2.1.7.1 = INTEGER: up(1)
+# .1.3.6.1.2.1.2.2.1.7.2 = INTEGER: up(1)
+# .1.3.6.1.2.1.2.2.1.7.3 = INTEGER: up(1)
+# .1.3.6.1.2.1.2.2.1.7.4 = INTEGER: up(1)
+# .1.3.6.1.2.1.2.2.1.7.5 = INTEGER: up(1)
+# .1.3.6.1.2.1.2.2.1.7.6 = INTEGER: up(1)
+#
+# Interface operational status
+# .1.3.6.1.2.1.2.2.1.8.1 = INTEGER: up(1)
+# .1.3.6.1.2.1.2.2.1.8.2 = INTEGER: up(1)
+# .1.3.6.1.2.1.2.2.1.8.3 = INTEGER: up(1)
+# .1.3.6.1.2.1.2.2.1.8.4 = INTEGER: up(1)
+# .1.3.6.1.2.1.2.2.1.8.5 = INTEGER: up(1)
+# .1.3.6.1.2.1.2.2.1.8.6 = INTEGER: down(2)
+#
+#.1.3.6.1.4.1.14988.1.1.3.8.0 = INTEGER: 236 			Voltage from power supply in tenths of volts
+#.1.3.6.1.4.1.14988.1.1.3.10.0 = INTEGER: 430			Board temperature in tenths of degrees Celsius
+#
+# Milliamps of current draw from PoE devices on each port
+# .1.3.6.1.4.1.14988.1.1.15.1.1.5.2 = INTEGER: 0
+# .1.3.6.1.4.1.14988.1.1.15.1.1.5.3 = INTEGER: 158
+# .1.3.6.1.4.1.14988.1.1.15.1.1.5.4 = INTEGER: 150
+# .1.3.6.1.4.1.14988.1.1.15.1.1.5.5 = INTEGER: 0
+#
+# Tenths of Watts of power draw from PoE devices on each port
+# .1.3.6.1.4.1.14988.1.1.15.1.1.6.2 = INTEGER: 0
+# .1.3.6.1.4.1.14988.1.1.15.1.1.6.3 = INTEGER: 37
+# .1.3.6.1.4.1.14988.1.1.15.1.1.6.4 = INTEGER: 35
+# .1.3.6.1.4.1.14988.1.1.15.1.1.6.5 = INTEGER: 0
+
+
+use strict;				#enforce good coding practices
+use Getopt::Long;                       #allow --long-switches to be used as parameters.  Install with: perl -MCPAN -e 'install Getopt::Long'
+
+
+
+# declare variables
+my ($OK,$WARN,$CRITICAL,$UNKNOWN);
+my ($CHECK_NAME,$cmd,$snmpwalk,$snmpget);
+my ($host,$oid,$key,%mikrotik,$community);
+my ($cpu_temp_crit,$cpu_temp_warn,$pingstatus);
+my ($opt_h,$opt_v,$opt_w,$opt_c,$opt_C,$opt_H);
+my ($verbose,$output_details,$perf_data);
+$cmd = "";                                              #initialize variable
+$CHECK_NAME                 = "MikroTik SwOS";		#name of nagios check
+$verbose                    = "no";                    	#yes/no variable to increase output for debugging
+$cpu_temp_warn              = 60;			#warn if CPU temperature reaches this value in degrees celsius
+$cpu_temp_crit              = 65;			#critical if CPU temperature reaches this value in degrees celsius
+$community                  = "public";  		#default SNMP community name
+$output_details             = "";			#initialize variable to hold details of script output
+$snmpwalk                   = "/usr/bin/snmpwalk";	#location of binary
+$snmpget                    = "/usr/bin/snmpget";	#location of binary
+#
+# Nagios return codes
+#
+$OK=            0;
+$WARN=          1;
+$CRITICAL=      2;
+$UNKNOWN=       3;
+
+
+
+
+sub get_options {
+   #
+   # this gets the command line parameters provided by the users
+   #
+   print "running get_options subroutine \n" if ($verbose eq "yes");
+   #
+   Getopt::Long::Configure('bundling');
+   GetOptions(
+      "h"   => \$opt_h, "help"        => \$opt_h,
+      "v"   => \$opt_v, "verbose"     => \$opt_v,
+      "C=s" => \$opt_C, "community=s" => \$opt_C, "comm=s" => \$opt_C,
+      "H=s" => \$opt_H, "hostname=s"  => \$opt_H, "host=s" => \$opt_H,
+   );
+   #
+   #
+   #
+   # If the user supplied -h or --help, generate the help messages
+   #
+   if( defined( $opt_h ) ) {
+      print "Nagios plugin for determining filesystem usage. \n";
+      print "Examples: \n";
+      print "   $0 --host=myhost --community=public \n";
+      print "   $0     -H myhost          -C public \n";
+      print "\n\n";
+      exit $UNKNOWN;
+   }
+   #
+   # If the user supplied -v or --verbose, increase verbosity for debugging
+   if( defined( $opt_v ) ) {
+      $verbose = "yes";
+   } 
+   #
+   #
+   # If the user did not supply a --community SNMP community string, use "public"
+   #
+   if( defined( $opt_C ) ) {
+      $community = $opt_C;
+   } else {
+      $community = "public";
+   }
+   #
+   # If the user did not supply a --host=??? , generate a warning
+   #
+   if( defined( $opt_H ) ) {
+      $host = $opt_H;
+   } else {
+      print "$CHECK_NAME UNKNOWN - a remote host to check was not provided. Use this syntax: $0 -H hostname -C snmp_community\n";
+      exit $CRITICAL;                                           #exit script
+   }
+   #
+   print "host=$host community=$community \n" if ($verbose eq "yes");
+}                       #end of subroutine
+
+
+
+
+
+sub sanity_checks {
+   #
+   print "running sanity_checks subroutine \n" if ($verbose eq "yes");
+   #
+   if ( ! -f "$snmpwalk" ) {
+      print "ERROR: Cannot find $snmpwalk \n";
+      exit;
+   }
+   if ( ! -x "$snmpwalk" ) {
+      print "ERROR: $snmpwalk is not executable by the current user\n";
+      exit;
+   }
+   if ( ! -f "$snmpget" ) {
+      print "ERROR: Cannot find $snmpget \n";
+      exit;
+   }
+   if ( ! -x "$snmpget" ) {
+      print "ERROR: $snmpget is not executable by the current user\n";
+      exit;
+   }
+   #
+   #
+   # confirm a remote host is defined
+   if( ! defined( $host ) ) {
+      print "$CHECK_NAME Unknown - missing name of remote host to check.  Use $0 -h for help\n";
+      exit $UNKNOWN;                                    #exit script
+   }
+   #
+   #
+   #
+   # Confirm the remote host is up
+   #
+   print "   trying to ping $host \n" if ($verbose eq "yes");
+   open(IN,"ping -c 1 -w 1 $host 2>&1 |");     #send a single ping to the remote host and wait 1 second for a reply
+   while (<IN>) {                                  #read a line from STDIN
+      if ( /100% packet loss/ ) {                  #check for ping timeouts (indicates host may be down)
+         $pingstatus = "$CHECK_NAME UNKNOWN -- no ping reply from $host \n";
+         print $pingstatus;                            #print error message
+         exit $UNKNOWN;                            #exit script
+      }                                            #end of if block
+      if ( /NOT FOUND/ ) {                         #check for invalid hostname (using AIX ping)
+         $pingstatus = "$CHECK_NAME UNKNOWN -- could not resolve hostname $host \n";
+         print $pingstatus;                            #print error message
+         exit $UNKNOWN;                            #exit script
+      }                                            #end of if block
+      if ( /unknown host/ ) {                      #check for invalid hostname (using Linux ping)
+         $pingstatus = "$CHECK_NAME UNKNOWN -- could not resolve hostname $host \n";
+         print $pingstatus;                            #print error message
+         exit $UNKNOWN;                            #exit script
+      }                                            #end of if block
+      if ( /no route to host/ ) {                  #check for routing problems
+         $pingstatus = "$CHECK_NAME UNKNOWN -- could not find a route to $host - check routing tables \n";
+         print $pingstatus;                            #print error message
+         exit $UNKNOWN;                            #exit script
+      }                                            #end of if block
+   }                                               #end of while loop
+   close IN;                                       #close filehandle
+
+
+}                                                       #end of subroutine
+
+
+sub confirm_snmp_working {
+   #
+   # This section confirms the remote host will respond to SNMP queries
+   #
+   print "Running confirm_snmp_working subroutine \n" if ($verbose eq "yes");
+   # Get the system description via SNMP
+   # SNMPv2-MIB::sysDescr.0
+   #
+   my $sysdescr = "";                              #initialize variable
+   $oid = ".1.3.6.1.2.1.1.1.0";
+   $cmd = "$snmpget -On -v 1 -c $community $host $oid 2>&1";                 #define command to be run
+   print "   running command: $cmd \n" if ($verbose eq "yes");
+   open(IN,"$cmd |");           #open a filehandle for reading
+   while (<IN>) {                               #read a line from STDIN
+      if ( /STRING: ([a-zA-Z0-9\.]+)/ ) {       #look for a response to the snmp query
+         $sysdescr = $1;                        #assign more mnemonic variable name
+      }                                         #end of if block
+   }                                            #end of while loop
+   close IN;                                    #close filehandle
+   unless ( $sysdescr =~ /[a-zA-Z0-9\.]+/ ) {
+      print "$CHECK_NAME CRITICAL -- could not query $host via SNMP.  Confirm you have the correct SNMP community string and the remote host $host has a working SNMP daemon.\n";
+      exit $UNKNOWN;                            #exit script
+   }                                            #end of unless block
+}                                               #end of subroutine
+
+
+
+sub get_system_info {
+   #
+   print "running get_system_info subroutine \n" if ($verbose eq "yes");
+   #
+   #
+   # query the SNMP counters to read model number, firmware, uptime, hostname
+   #
+   #
+   #
+   #  Get the model number and firmware level
+   # .1.3.6.1.2.1.1.1.0 = STRING: CSS106-1G-4P-1S SwOS v2.13	Model number and firmware level
+   #
+   $mikrotik{model}    = "unknown";					#initialize hash element to avoid undef errors
+   $mikrotik{firmware} = "unknown";					#initialize hash element to avoid undef errors
+   $oid = ".1.3.6.1.2.1.1.1.0";                            		#model number and firmware level
+   $cmd = "$snmpget -On -v 1 -c $community $host $oid";        	#
+   print "   running command to find model number: $cmd \n" if ($verbose eq "yes");
+   open(IN,"$cmd |");                                                   #get the index numbers of the LUNs
+   while (<IN>) {                                                       #read a line from the command output
+      if (/$oid = STRING: ([a-zA-Z0-9\-]+) (SwOS v[0-9]+\.[0-9]+)/) {	#regex to parse out model number and firmware level
+         $mikrotik{model}    = $1;					#add value to hash
+         $mikrotik{firmware} = $2;					#add value to hash
+         print "   model:$mikrotik{model} firmware:$mikrotik{firmware} \n" if ($verbose eq "yes");
+      }									#end of if block
+   }                                                       		#end of while loop
+   close IN;								#
+   #
+   # This check is for devices running MikroTik SwitchOS, not MikroTik RouterOS.  Confirm the firmware contains "SwOS"
+   unless ( $mikrotik{firmware} =~ /SwOS/ ) {
+      print "$CHECK_NAME UNKNOWN - this check is for devices running Mikrotik SwitchOS.  Detected firmware $mikrotik{firmware} \n";
+      exit $UNKNOWN;
+   }									#end of unless block
+   #
+   #  Get the hostname
+   # .1.3.6.1.2.1.1.3.0 = Timeticks: (5218548) 14:29:45.48`	Uptime.  Value in brackets is inhundredths of seconds, followed by hh:mm:ss.##
+   # .1.3.6.1.2.1.1.5.0 = STRING: switch2				Hostname
+   #
+   $mikrotik{hostname} = "unknown";					#initialize hash element to avoid undef errors
+   $oid = ".1.3.6.1.2.1.1.5.0";                            		#model number and firmware level
+   $cmd = "$snmpget -On -v 1 -c $community $host $oid";        		#
+   print "   running command to find hostname: $cmd \n" if ($verbose eq "yes");
+   open(IN,"$cmd |");                                                   #get the index numbers of the LUNs
+   while (<IN>) {                                                       #read a line from the command output
+      if (/$oid = STRING: ([a-zA-Z0-9\-\.]+)/) {			#regex to parse out model number and firmware level
+         $mikrotik{hostname} = $1;					#add value to hash
+         print "   hostname:$mikrotik{hostname} \n" if ($verbose eq "yes");
+      }									#end of if block
+   }                                                       		#end of while loop
+   close IN;								#
+   #
+   #  Get the uptime
+   # .1.3.6.1.2.1.1.3.0 = Timeticks: (5218548) 14:29:45.48`	Uptime.  Value in brackets is in hundredths of seconds, followed by hh:mm:ss.##
+   # .1.3.6.1.2.1.1.3.0 = Timeticks: (5218548) 0:29:45.48`	Value of hours may only be a single digit if less than 10 hours
+   #
+   $mikrotik{uptime_days} = 0;						#initialize hash element to avoid undef errors
+   $mikrotik{uptime_hours} = 0;						#initialize hash element to avoid undef errors
+   $mikrotik{uptime_minutes} = 0;					#initialize hash element to avoid undef errors
+   $oid = ".1.3.6.1.2.1.1.3.0";                            		#model number and firmware level
+   $cmd = "$snmpget -On -v 1 -c $community $host $oid";        	#
+   print "   running command to find hostname: $cmd \n" if ($verbose eq "yes");
+   open(IN,"$cmd |");                                                   #get the index numbers of the LUNs
+   while (<IN>) {                                                       #read a line from the command output
+      if (/$oid = Timeticks: (\([0-9]+\))]/) {				#regex to parse out the hundredths of seconds of uptime
+         $mikrotik{uptime_seconds} = $1/100;				#divide by 100 to convert to seconds
+         $mikrotik{uptime_seconds}  = sprintf("%.0f",$mikrotik{uptime_seconds});                     #truncate to 0 decimal places
+         # convert seconds to a more human readable value
+         if ( $mikrotik{uptime_seconds} > 60 ) {			
+            $mikrotik{uptime} = $mikrotik{uptime_seconds} /60;		#convert seconds to minutes
+            $mikrotik{uptime} = sprintf("%.0f",$mikrotik{uptime});      #truncate to 0 decimal places
+            $mikrotik{uptime} = "$mikrotik{uptime} minutes";		#display in human readable format
+         }								#end of if block
+         if ( $mikrotik{uptime_seconds} > 3600 ) {
+            $mikrotik{uptime} = $mikrotik{uptime_seconds} /3600;	#convert seconds to minutes
+            $mikrotik{uptime} = sprintf("%.0f",$mikrotik{uptime});      #truncate to 0 decimal places
+            $mikrotik{uptime} = "$mikrotik{uptime} hours";		#display in human readable format
+         }								#end of if block
+         if ( $mikrotik{uptime_seconds} > 86400 ) {
+            $mikrotik{uptime} = $mikrotik{uptime_seconds} /86400;	#convert seconds to minutes
+            $mikrotik{uptime} = sprintf("%.0f",$mikrotik{uptime});      #truncate to 0 decimal places
+            $mikrotik{uptime} = "$mikrotik{uptime} days";		#display in human readable format
+         }								#end of if block
+         print "   uptime:$mikrotik{uptime} \n" if ($verbose eq "yes");
+      }									#end of if block
+   }									#end of while loop
+   close IN;								#close filehandle
+}                                                       		#end of subroutine
+
+
+
+
+sub get_system_temperature {
+   #
+   # query the SNMP counters to read temperature sensors, fan speeds, etc.
+   #
+   print "running get_system_temperature subroutine \n" if ($verbose eq "yes");
+   #
+   #.1.3.6.1.4.1.14988.1.1.3.10.0 = INTEGER: 430			Board temperature in tenths of degrees Celsius
+   #
+   $mikrotik{temperature} = "unknown";					#initialize hash element to avoid undef errors
+   $oid = ".1.3.6.1.4.1.14988.1.1.3.10.0";                            		#model number and firmware level
+   $cmd = "$snmpget -On -v 1 -c $community $host $oid";        	#
+   print "   running command to find temperature: $cmd \n" if ($verbose eq "yes");
+   open(IN,"$cmd |");                                                   #get the index numbers of the LUNs
+   while (<IN>) {                                                       #read a line from the command output
+      if (/$oid = INTEGER: ([0-9]+)/) {					#regex to parse out tmperature
+         $mikrotik{cpu_temp} = $1;					#add value to hash
+         $mikrotik{cpu_temp} = $mikrotik{cpu_temp}/10;			#convert from tenths of degrees to degrees Celsius
+         $mikrotik{cpu_temp} = sprintf("%.1f",$mikrotik{cpu_temp});     #truncate to 1 decimal places
+         print "   CPU temperature:$mikrotik{cpu_temp} Celsius \n" if ($verbose eq "yes");
+      }									#end of if block
+   }                                                       		#end of while loop
+   close IN;								#
+}									#end of subroutine 
+
+
+
+
+sub get_fan_speeds {
+   #
+   # query the SNMP counters to read temperature sensors, fan speeds, etc.
+   #
+   print "running get_fan_speeds subroutine \n" if ($verbose eq "yes");
+   #
+   # to be written... need a MikroTik device with fans first....
+   #
+   $mikrotik{fan1speed} = 0;					#initialize variable, placeholder until a model with fans can be tested
+   $mikrotik{fan2speed} = 0;					#initialize variable, placeholder until a model with fans can be tested
+   $mikrotik{fan3speed} = 0;					#initialize variable, placeholder until a model with fans can be tested
+   $mikrotik{fan4speed} = 0;					#initialize variable, placeholder until a model with fans can be tested
+}								#end of subroutine 
+
+
+
+
+sub print_output {
+   #
+   # print output in the format expected by nagios
+   #
+   print "running print_output subroutine \n" if ($verbose eq "yes");
+   #
+   #
+   # The nagios performance data will be the same for all the outputs, so just put it in a variable that can be use by all the output options
+   #
+   # The format is:  label=value[UOM];[warn];[crit];[min];[max]
+   # On the "label=value" section is required.  The warn|crit|min|max entries are optional.
+   # You can have multiple items of perf data, just separate each section with a space
+   # UOM is Units Of Measurement.    Can be s=seconds B=bytes MB=megabytes %=percent c=counter
+   # You can use the standard nagios ranges and thresholds formats (examples below)
+   # Range definition   Generate an alert if x...
+   # ----------------   -------------------------
+   # 10                 < 0 or > 10, (outside the range of {0 .. 10})
+   # 10:                < 10, (outside {10 .. ∞})
+   # ~:10               > 10, (outside the range of {-∞ .. 10})
+   # 10:20              < 10 or > 20, (outside the range of {10 .. 20})
+   # @10:20             ≥ 10 and ≤ 20, (inside the range of {10 .. 20})
+   #
+   $perf_data = "cpu_temperature=$mikrotik{cpu_temp};$cpu_temp_crit;$cpu_temp_warn;; ";
+   #
+   #
+   # Much of the text of the output will be the same.  Put the common stuff in a variable so we can simplify the outputs
+   $output_details = "CPU temperature:$mikrotik{cpu_temp}C  Hostname:$mikrotik{hostname} Model:$mikrotik{model} Firmware:$mikrotik{firmware} ";
+   #
+   # Different systems have different numbers of cooling fans.  Only include the cooling fan details if the fan is spinning at >0 RPM
+   $output_details = "$output_details Fan1:$mikrotik{fan1speed}rpm" if ($mikrotik{fan1speed} > 0);
+   $output_details = "$output_details Fan2:$mikrotik{fan2speed}rpm" if ($mikrotik{fan2speed} > 0);
+   $output_details = "$output_details Fan3:$mikrotik{fan3speed}rpm" if ($mikrotik{fan3speed} > 0);
+   $output_details = "$output_details Fan4:$mikrotik{fan4speed}rpm" if ($mikrotik{fan4speed} > 0);
+   #
+   if ( $mikrotik{cpu_temp} eq "unknown" ) {
+      print "$CHECK_NAME UNKNOWN - could not determine CPU temperature.  $output_details | $perf_data \n";
+      exit $WARN;
+   }
+   if ( $mikrotik{fan1speed} eq "unknown" ) {
+      print "$CHECK_NAME UNKNOWN - could not determine speed of fan1.  $output_details | $perf_data \n";
+      exit $WARN;
+   }
+   if ( $mikrotik{cpu_temp} > $cpu_temp_crit ) {
+      print "$CHECK_NAME CRITICAL - CPU temperature is $mikrotik{cpu_temp}C.  The air conditioning or fans may have failed.   $output_details | $perf_data \n";
+      exit $CRITICAL;
+   }
+   if ( $mikrotik{cpu_temp} > $cpu_temp_warn ) {
+      print "$CHECK_NAME WARN - CPU temperature is $mikrotik{cpu_temp}C.  The air conditioning or fans may have failed.   $output_details | $perf_data \n";
+      exit $WARN;
+   }
+   #
+   # This message gets sent if everything is ok
+   print "$CHECK_NAME OK - $output_details | $perf_data \n";
+   exit $OK;
+}                                                                       #end of subroutine
+
+
+
+# --------------------------- main body of program ----------------------
+get_options;
+sanity_checks;
+confirm_snmp_working;
+get_system_info; 
+get_system_temperature; 
+get_fan_speeds;
+print_output;
+
