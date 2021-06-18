@@ -31,5 +31,5 @@ You will need a section in the commands.cfg file on the nagios server that looks
 # Output
 Output will look similar to the following:
 ````    
-    MikroTik SwOS OK - CPU temperature:43.0C  Hostname:switch2 Model:CSS106-1G-4P-1S Firmware:SwOS v2.13  | cpu_temperature=43.0;65;60;; 
+    MikroTik SwOS OK - CPU temperature:43.0C  Uptime:2 days Hostname:switch2 Model:CSS106-1G-4P-1S Firmware:SwOS v2.13  | cpu_temperature=43.0;65;60;; 
 ````
