@@ -3,6 +3,7 @@
 #OUTSTANDING TASKS
 #-----------------
 #  Add more performance data details to the output  (ie fan speeds)
+#  Add port up/down status for ports specified as important
 
 
 # CHANGE LOG
@@ -311,7 +312,6 @@ sub get_system_info {
    }									#end of unless block
    #
    #  Get the hostname
-   # .1.3.6.1.2.1.1.3.0 = Timeticks: (5218548) 14:29:45.48`	Uptime.  Value in brackets is inhundredths of seconds, followed by hh:mm:ss.##
    # .1.3.6.1.2.1.1.5.0 = STRING: switch2				Hostname
    #
    $mikrotik{hostname} = "unknown";					#initialize hash element to avoid undef errors
@@ -328,21 +328,22 @@ sub get_system_info {
    close IN;								#
    #
    #  Get the uptime
-   # .1.3.6.1.2.1.1.3.0 = Timeticks: (5218548) 14:29:45.48`	Uptime.  Value in brackets is in hundredths of seconds, followed by hh:mm:ss.##
-   # .1.3.6.1.2.1.1.3.0 = Timeticks: (5218548) 0:29:45.48`	Value of hours may only be a single digit if less than 10 hours
+   # .1.3.6.1.2.1.1.3.0 = Timeticks: (5218548) 14:29:45.48	Uptime.  Value in brackets is in hundredths of seconds, followed by hh:mm:ss.##
+   # .1.3.6.1.2.1.1.3.0 = Timeticks: (5218548) 0:29:45.48	Value of hours may only be a single digit if less than 10 hours
+   # .1.3.6.1.2.1.1.3.0 = 5218548				Simplified output by using -Ont parameter.  Helps avoid escaping brackets in regex
    #
-   $mikrotik{uptime_days} = 0;						#initialize hash element to avoid undef errors
-   $mikrotik{uptime_hours} = 0;						#initialize hash element to avoid undef errors
-   $mikrotik{uptime_minutes} = 0;					#initialize hash element to avoid undef errors
    $oid = ".1.3.6.1.2.1.1.3.0";                            		#model number and firmware level
-   $cmd = "$snmpget -On -v 1 -c $community $host $oid";        	#
-   print "   running command to find hostname: $cmd \n" if ($verbose eq "yes");
+   $cmd = "$snmpget -Ont -v 1 -c $community $host $oid";        	#Use -Ont parameter to output in hundreths of seconds without brackets or hh:mm:ss.
+   print "   running command to find uptime: $cmd \n" if ($verbose eq "yes");
    open(IN,"$cmd |");                                                   #get the index numbers of the LUNs
    while (<IN>) {                                                       #read a line from the command output
-      if (/$oid = Timeticks: (\([0-9]+\))]/) {				#regex to parse out the hundredths of seconds of uptime
+      if (/$oid = ([0-9]+)/) {						#regex to parse out the hundredths of seconds of uptime.  NOTE: use the -Ont parameter
          $mikrotik{uptime_seconds} = $1/100;				#divide by 100 to convert to seconds
          $mikrotik{uptime_seconds}  = sprintf("%.0f",$mikrotik{uptime_seconds});                     #truncate to 0 decimal places
          # convert seconds to a more human readable value
+         if ( $mikrotik{uptime_seconds} <= 60 ) {			
+            $mikrotik{uptime} = "$mikrotik{uptime_seconds} seconds";	#display in human readable format
+         }								#end of if block
          if ( $mikrotik{uptime_seconds} > 60 ) {			
             $mikrotik{uptime} = $mikrotik{uptime_seconds} /60;		#convert seconds to minutes
             $mikrotik{uptime} = sprintf("%.0f",$mikrotik{uptime});      #truncate to 0 decimal places
@@ -358,7 +359,7 @@ sub get_system_info {
             $mikrotik{uptime} = sprintf("%.0f",$mikrotik{uptime});      #truncate to 0 decimal places
             $mikrotik{uptime} = "$mikrotik{uptime} days";		#display in human readable format
          }								#end of if block
-         print "   uptime:$mikrotik{uptime} \n" if ($verbose eq "yes");
+         print "   uptime:$mikrotik{uptime} ($mikrotik{uptime_seconds} seconds) \n" if ($verbose eq "yes");
       }									#end of if block
    }									#end of while loop
    close IN;								#close filehandle
@@ -437,7 +438,7 @@ sub print_output {
    #
    #
    # Much of the text of the output will be the same.  Put the common stuff in a variable so we can simplify the outputs
-   $output_details = "CPU temperature:$mikrotik{cpu_temp}C  Hostname:$mikrotik{hostname} Model:$mikrotik{model} Firmware:$mikrotik{firmware} ";
+   $output_details = "CPU temperature:$mikrotik{cpu_temp}C  Uptime:$mikrotik{uptime} Hostname:$mikrotik{hostname} Model:$mikrotik{model} Firmware:$mikrotik{firmware} ";
    #
    # Different systems have different numbers of cooling fans.  Only include the cooling fan details if the fan is spinning at >0 RPM
    $output_details = "$output_details Fan1:$mikrotik{fan1speed}rpm" if ($mikrotik{fan1speed} > 0);
@@ -459,6 +460,10 @@ sub print_output {
    }
    if ( $mikrotik{cpu_temp} > $cpu_temp_warn ) {
       print "$CHECK_NAME WARN - CPU temperature is $mikrotik{cpu_temp}C.  The air conditioning or fans may have failed.   $output_details | $perf_data \n";
+      exit $WARN;
+   }
+   if ( $mikrotik{uptime_seconds} < 3600 ) {
+      print "$CHECK_NAME WARN - Recent reboot detected.  Uptime is $mikrotik{uptime}.  $output_details | $perf_data \n";
       exit $WARN;
    }
    #
