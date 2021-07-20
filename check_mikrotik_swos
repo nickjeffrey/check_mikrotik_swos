@@ -9,6 +9,8 @@
 # CHANGE LOG
 # ----------
 # 2021/06/17	njeffrey	Script created to monitor MikroTik devices running SwitchOS (not RouterOS)
+# 2021/06/18	njeffrey	Ad support for model CSS106-1G-4P-1S
+# 2021/07/20	njeffrey	Ad support for model CRS305-1G-4S+
 
 
 # nagios shell script to query MikroTik devices running SwitchOS (not RouterOS) via SNMP
@@ -85,7 +87,9 @@
 # .1.3.6.1.2.1.2.2.1.8.6 = INTEGER: down(2)
 #
 #.1.3.6.1.4.1.14988.1.1.3.8.0 = INTEGER: 236 			Voltage from power supply in tenths of volts
-#.1.3.6.1.4.1.14988.1.1.3.10.0 = INTEGER: 430			Board temperature in tenths of degrees Celsius
+#.1.3.6.1.4.1.14988.1.1.3.10.0 = INTEGER: 430			Board temperature in tenths of degrees Celsius for model CSS106-1G-4P-1S
+#.1.3.6.1.4.1.14988.1.1.3.11.0 = INTEGER: 430			Board temperature in tenths of degrees Celsius for model CRS305-1G-4S+
+#
 #
 # Milliamps of current draw from PoE devices on each port
 # .1.3.6.1.4.1.14988.1.1.15.1.1.5.2 = INTEGER: 0
