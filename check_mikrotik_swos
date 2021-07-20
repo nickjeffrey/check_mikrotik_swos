@@ -289,6 +289,8 @@ sub get_system_info {
    #
    #  Get the model number and firmware level
    # .1.3.6.1.2.1.1.1.0 = STRING: CSS106-1G-4P-1S SwOS v2.13	Model number and firmware level
+   # .1.3.6.1.2.1.1.1.0 = STRING: CRS305-1G-4S+ SwOS v2.8.1
+   #
    #
    $mikrotik{model}    = "unknown";					#initialize hash element to avoid undef errors
    $mikrotik{firmware} = "unknown";					#initialize hash element to avoid undef errors
@@ -297,7 +299,7 @@ sub get_system_info {
    print "   running command to find model number: $cmd \n" if ($verbose eq "yes");
    open(IN,"$cmd |");                                                   #get the index numbers of the LUNs
    while (<IN>) {                                                       #read a line from the command output
-      if (/$oid = STRING: ([a-zA-Z0-9\-]+) (SwOS v[0-9]+\.[0-9]+)/) {	#regex to parse out model number and firmware level
+      if (/$oid = STRING: ([a-zA-Z0-9\-\+]+) (SwOS v[0-9]+\.[0-9]+)/) {	#regex to parse out model number and firmware level
          $mikrotik{model}    = $1;					#add value to hash
          $mikrotik{firmware} = $2;					#add value to hash
          print "   model:$mikrotik{model} firmware:$mikrotik{firmware} \n" if ($verbose eq "yes");
@@ -376,20 +378,41 @@ sub get_system_temperature {
    #
    #.1.3.6.1.4.1.14988.1.1.3.10.0 = INTEGER: 430			Board temperature in tenths of degrees Celsius
    #
-   $mikrotik{temperature} = "unknown";					#initialize hash element to avoid undef errors
-   $oid = ".1.3.6.1.4.1.14988.1.1.3.10.0";                            		#model number and firmware level
-   $cmd = "$snmpget -On -v 1 -c $community $host $oid";        	#
-   print "   running command to find temperature: $cmd \n" if ($verbose eq "yes");
-   open(IN,"$cmd |");                                                   #get the index numbers of the LUNs
-   while (<IN>) {                                                       #read a line from the command output
-      if (/$oid = INTEGER: ([0-9]+)/) {					#regex to parse out tmperature
-         $mikrotik{cpu_temp} = $1;					#add value to hash
-         $mikrotik{cpu_temp} = $mikrotik{cpu_temp}/10;			#convert from tenths of degrees to degrees Celsius
-         $mikrotik{cpu_temp} = sprintf("%.1f",$mikrotik{cpu_temp});     #truncate to 1 decimal places
-         print "   CPU temperature:$mikrotik{cpu_temp} Celsius \n" if ($verbose eq "yes");
-      }									#end of if block
-   }                                                       		#end of while loop
-   close IN;								#
+   $mikrotik{cpu_temp} = "unknown";					#initialize hash element to avoid undef errors
+   #
+   #
+   #
+   if ( $mikrotik{cpu_temp} eq "unknown" ) {				#different switch models use different SNMP OID's for the temperature sensors
+      $oid = ".1.3.6.1.4.1.14988.1.1.3.10.0";                          	#OID used for temperature on model CSS106-1G-4P-1S running SwOS 2.13 or later
+      $cmd = "$snmpget -On -v 1 -c $community $host $oid";        	
+      print "   running command to find temperature: $cmd \n" if ($verbose eq "yes");
+      open(IN,"$cmd 2>&1 |");                                           #open filehandle from command output
+      while (<IN>) {                                                    #read a line from the command output
+         if (/$oid = INTEGER: ([0-9]+)/) {				#regex to parse out tmperature
+            $mikrotik{cpu_temp} = $1;					#add value to hash
+            $mikrotik{cpu_temp} = $mikrotik{cpu_temp}/10;		#convert from tenths of degrees to degrees Celsius
+            $mikrotik{cpu_temp} = sprintf("%.1f",$mikrotik{cpu_temp});     #truncate to 1 decimal places
+            print "   CPU temperature:$mikrotik{cpu_temp} Celsius \n" if ($verbose eq "yes");
+         }								#end of if block
+      }                                                       		#end of while loop
+      close IN;								#close filehandle
+   }									#end of if block
+   #
+   if ( $mikrotik{cpu_temp} eq "unknown" ) {				#different switch models use different SNMP OID's for the temperature sensors
+      $oid = ".1.3.6.1.4.1.14988.1.1.3.11.0";                          	#OID used for temperature on model CRS305-1G-4S+ running SwOS 2.13 or later
+      $cmd = "$snmpget -On -v 1 -c $community $host $oid";        	
+      print "   running command to find temperature: $cmd \n" if ($verbose eq "yes");
+      open(IN,"$cmd 2>&1 |");                                           #open filehandle from command output
+      while (<IN>) {                                                    #read a line from the command output
+         if (/$oid = INTEGER: ([0-9]+)/) {				#regex to parse out tmperature
+            $mikrotik{cpu_temp} = $1;					#add value to hash
+            $mikrotik{cpu_temp} = $mikrotik{cpu_temp}/10;		#convert from tenths of degrees to degrees Celsius
+            $mikrotik{cpu_temp} = sprintf("%.1f",$mikrotik{cpu_temp});     #truncate to 1 decimal places
+            print "   CPU temperature:$mikrotik{cpu_temp} Celsius \n" if ($verbose eq "yes");
+         }								#end of if block
+      }                                                       		#end of while loop
+      close IN;								#close filehandle
+   }									#end of if block
 }									#end of subroutine 
 
 
