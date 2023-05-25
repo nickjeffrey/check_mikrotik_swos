@@ -269,7 +269,7 @@ sub confirm_snmp_working {
    print "   running command: $cmd \n" if ($verbose eq "yes");
    open(IN,"$cmd |");           #open a filehandle for reading
    while (<IN>) {                               #read a line from STDIN
-      if ( /STRING: ([a-zA-Z0-9\.]+)/ ) {       #look for a response to the snmp query
+      if ( /STRING: ([a-zA-Z0-9\.\"?]+)/ ) {    #look for a response to the snmp query
          $sysdescr = $1;                        #assign more mnemonic variable name
       }                                         #end of if block
    }                                            #end of while loop
@@ -303,7 +303,7 @@ sub get_system_info {
    print "   running command to find model number: $cmd \n" if ($verbose eq "yes");
    open(IN,"$cmd |");                                                   #get the index numbers of the LUNs
    while (<IN>) {                                                       #read a line from the command output
-      if (/$oid = STRING: ([a-zA-Z0-9\-\+]+) (SwOS v[0-9]+\.[0-9]+)/) {	#regex to parse out model number and firmware level
+      if (/$oid = STRING: \"?([a-zA-Z0-9\-\+]+) (SwOS v[0-9]+\.[0-9]+)\"?/) {	#regex to parse out model number and firmware level
          $mikrotik{model}    = $1;					#add value to hash
          $mikrotik{firmware} = $2;					#add value to hash
          print "   model:$mikrotik{model} firmware:$mikrotik{firmware} \n" if ($verbose eq "yes");
@@ -326,7 +326,7 @@ sub get_system_info {
    print "   running command to find hostname: $cmd \n" if ($verbose eq "yes");
    open(IN,"$cmd |");                                                   #get the index numbers of the LUNs
    while (<IN>) {                                                       #read a line from the command output
-      if (/$oid = STRING: ([a-zA-Z0-9\-\.]+)/) {			#regex to parse out model number and firmware level
+      if (/$oid = STRING: \"?([a-zA-Z0-9\-\.]+)\"?/) {			#regex to parse out model number and firmware level
          $mikrotik{hostname} = $1;					#add value to hash
          print "   hostname:$mikrotik{hostname} \n" if ($verbose eq "yes");
       }									#end of if block
